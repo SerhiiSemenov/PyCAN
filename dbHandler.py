@@ -2,6 +2,7 @@ import cantools
 import canToolsWrapper
 from PyQt5.QtCore import *
 from collections import OrderedDict
+from timeit import default_timer as timer
 
 
 class SignalData(QObject):
@@ -47,6 +48,7 @@ class DbHandler(QObject):
     msgDataUpdSig = pyqtSignal(str, str)
     loadSigDataToGui = pyqtSignal(set)
     loadCANTrace = pyqtSignal(list, dict)
+    loadSignalsCash = pyqtSignal(dict)
     loadSignalValsToGui = pyqtSignal(dict)
     loadMsgSigVal = pyqtSignal(dict)
     loadSelectedMsgName = pyqtSignal(str)
@@ -57,12 +59,13 @@ class DbHandler(QObject):
         self._current_msg = 0
         self._msg_data = b'\x00\x00\x00\x00\x00\x00\x00\x00'
         self._signal_collection = set()
-        self._fileData = list()
         self._fileParsedData = dict()
         self._fileParsedMsgName = dict()
         self._fileSignalsData = dict()
         self._signal_name_list = dict()
-        self._log_data = dict()
+        self._fileDataCash = list()
+        self._id_list_cash = list()
+        self._name_list_cash = list()
 
     def load_db(self, path_to_db):
         """Load CAN DB file"""
@@ -80,6 +83,8 @@ class DbHandler(QObject):
                 self._signal_name_list[signal_name] = name
             id = message.frame_id
             msg_name_id.add(hex(id) + '   ' + name)
+            self._id_list_cash.append(id)
+            self._name_list_cash.append(name)
         return msg_name_id
 
     def get_message_by_name(self, message_name):
@@ -163,54 +168,74 @@ class DbHandler(QObject):
     @pyqtSlot(str)
     def open_can_trace(self, file_path):
         skipped_str = 0
-        message_id = str()
-        self._fileData.clear()
+        str_number = 0
+        log_data = dict()
+
         self._fileParsedData.clear()
         self._fileSignalsData.clear()
 
+        start = timer()
         with open(file_path, "r") as file:
-            self._fileData = file.readlines()
-            for file_str in self._fileData:
+            file_data = file.readlines()
+            file_data_light = list()
+            for file_str in file_data:
                 try:
                     split_data = file_str.split()
                     time = float(split_data[0])
-                    message_id = split_data[2]
+                    message_id = split_data[2].strip()
                     payload_index = file_str.find('d 8')+4
                     payload = file_str[payload_index:payload_index+23].strip()
                     msg_payload_data = bytearray.fromhex(payload)
+                    file_data_light.append(file_str[:payload_index+23])
 
                 except:
-                    # print("No msg here:" + file_str[:20].strip())
+                    #print("No msg here:" + file_str[:20].strip())
                     continue
 
                 try:
                     if len(message_id) < 5:
-                        msg = self._can_db_inst.decode_message(int(message_id, 16), msg_payload_data)
-                        msg_obj = self._can_db_inst.get_message_by_frame_id(message_id)
-                    else:
-                        msg = self._can_db_inst.decode_message(message_id.strip(), msg_payload_data)
-                        msg_obj = self._can_db_inst.get_message_by_name(message_id)
-
-                    self._fileParsedMsgName[time] = msg_obj.name
-                    self._fileParsedData[time] = msg
-                    for signal_name in msg:
-                        if signal_name in self._fileSignalsData:
-                            self._fileSignalsData[signal_name][time] = msg[signal_name]
+                        message_id_int = int(message_id, 16)
+                        if message_id_int in self._id_list_cash:
+                            msg_obj = self._can_db_inst.get_message_by_frame_id(message_id_int)
+                            msg = self._can_db_inst.decode_message(message_id_int, msg_payload_data)
+                            is_message_in_db = True
                         else:
-                            self._fileSignalsData[signal_name] = dict()
-                            self._fileSignalsData[signal_name][time] = msg[signal_name]
-
-                    if message_id in self._log_data:
-                        self._log_data[message_id].append(file_str)
+                            is_message_in_db = False
                     else:
-                        self._log_data[message_id] = list()
-                        self._log_data[message_id].append(file_str)
+                        if message_id in self._name_list_cash:
+                            msg = self._can_db_inst.decode_message(message_id, msg_payload_data)
+                            msg_obj = self._can_db_inst.get_message_by_name(message_id)
+                            is_message_in_db = True
+                        else:
+                            is_message_in_db = False
+
+                    """message search table"""
+                    if message_id in log_data:
+                        log_data[message_id].append(file_str[:payload_index+23])
+                    else:
+                        log_data[message_id] = list()
+                        log_data[message_id].append(file_str[:payload_index+23])
+
+                    """signal search table"""
+                    if is_message_in_db:
+                        self._fileParsedMsgName[time] = msg_obj.name
+                        self._fileParsedData[time] = msg
+                        for signal_name in msg:
+                            if signal_name in self._fileSignalsData:
+                                self._fileSignalsData[signal_name][time] = msg[signal_name]
+                            else:
+                                self._fileSignalsData[signal_name] = dict()
+                                self._fileSignalsData[signal_name][time] = msg[signal_name]
 
                 except:
                     skipped_str = skipped_str + 1
-                    print("msg cat not decoded:" + file_str[:12].strip() + ' id ' + message_id.strip() + ' msg ' + str(msg_payload_data))
+                    print("msg cat not be decoded:" + file_str[:12].strip() + ' id ' + message_id.strip() + ' msg ' + str(
+                        msg_payload_data))
 
-            self.loadCANTrace.emit(self._fileData, self._log_data)
+            end = timer()
+            print(end-start)
+            self.loadCANTrace.emit(file_data_light, log_data)
+            self.loadSignalsCash.emit(self._fileSignalsData)
 
             # if 'EmgcyCallFalt_B_Dsply' in self._fileSignalsData:
             #     sig_dat = self._fileSignalsData['EmgcyCallFalt_B_Dsply']

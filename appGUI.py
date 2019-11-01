@@ -1,8 +1,11 @@
-import sys
-from itertools import product
-from collections import Counter
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
+from timeit import default_timer as timer
+import matplotlib
+matplotlib.use("Qt5Agg")
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+from numpy import arange, sin, pi
 import sys
 import os
 
@@ -270,12 +273,17 @@ class ThumbListWidget(QListWidget):
                 dialog.exec_()
 
     def up_data_to_view(self, payload_list):
+        start = timer()
         for item in payload_list:
             self.addItem(item)
+        end = timer()
+        print("up_data_to_view" + str(end-start))
 
 
 class AnalyzerWidget(QWidget):
     str_selected = pyqtSignal()
+    make_graph = pyqtSignal(dict)
+    clean = pyqtSignal()
 
     def __init__(self, parent=None):
         super(AnalyzerWidget, self).__init__(parent=parent)
@@ -284,14 +292,28 @@ class AnalyzerWidget(QWidget):
         self._fileExplorerWidget.setMinimumWidth(900)
         self._fileExplorer = ThumbListWidget(self)
         self._messages_cash = dict()
+        self._log_cash = list()
+        self._search_key = str()
+        self._search_key_sig = str()
+        self._filtered_msg = list()
+        self._signals_cash = dict()
 
         self._msgFrame = QFrame()
+        self._searchBoxFrame = QFrame()
+        self._searchSigFrame = QFrame()
         self._layoutDetailArea = QVBoxLayout(self._msgFrame)
+        self._searchBox = QHBoxLayout(self._searchBoxFrame)
+        self._searchSigBox = QHBoxLayout(self._searchSigFrame)
         self._layout = QHBoxLayout(self)
         self._mainArea = QListWidget()
         self._msgName = QListWidget()
         self._searchByExpr = QLineEdit()
+        self._searchBySignal = QLineEdit()
         self._msgDetailArea = QListWidget()
+        self._searchButton = QPushButton("find")
+        self._cleanButton = QPushButton("clean")
+        self._mkGraphButton = QPushButton("make graph")
+        self._cleanGraphButton = QPushButton("clean")
         self._mainArea.setMinimumWidth(900)
         # self._msgDetailArea.setMaximumWidth(400)
         # self._msgName.setMaximumWidth(400)
@@ -300,35 +322,93 @@ class AnalyzerWidget(QWidget):
 
         self._layout.addWidget(self._fileExplorer)
         self._layout.addWidget(self._msgFrame)
+        self._searchBox.addWidget(self._searchButton)
+        self._searchBox.addWidget(self._cleanButton)
+        self._searchSigBox.addWidget(self._mkGraphButton)
+        self._searchSigBox.addWidget(self._cleanGraphButton)
         self._layoutDetailArea.addWidget(self._searchByExpr)
+        self._layoutDetailArea.addWidget(self._searchBoxFrame)
+        self._layoutDetailArea.addWidget(self._searchBySignal)
+        self._layoutDetailArea.addWidget(self._searchSigFrame)
         self._layoutDetailArea.addWidget(self._msgName)
         self._layoutDetailArea.addWidget(self._msgDetailArea)
 
         self._fileExplorer.itemDoubleClicked.connect(self.str_selected)
-        self._searchByExpr.textChanged.connect(self.update_list)
+        self._searchByExpr.textChanged.connect(self.update_key)
+        self._searchBySignal.textChanged.connect(self.update_sig_key)
+        self._searchButton.clicked.connect(self.update_list)
+        self._cleanButton.clicked.connect(self.clean_search_res)
+        self._msgName.doubleClicked.connect(self.push_name_to_search)
+        self._msgDetailArea.doubleClicked.connect(self.get_signal_name)
+        self._mkGraphButton.clicked.connect(self.push_data_to_graph)
+        self._cleanGraphButton.clicked.connect(self.clean_graph)
 
-    def update_list(self, search_key):
+    def get_signal_name(self):
+        if self._searchBySignal.cursorPosition() == 0:
+            self._searchBySignal.insert(self._msgDetailArea.currentItem().text().split('=')[0])
+        else:
+            self._searchBySignal.insert('|' + self._msgDetailArea.currentItem().text().split('=')[0])
+
+    def clean_graph(self):
+        self.clean.emit()
+        self._searchBySignal.clear()
+
+    def update_sig_key(self, search_sig):
+        self._search_key_sig = search_sig
+
+    def push_data_to_graph(self):
+        try:
+            search_keys = self._search_key_sig.split('|')
+            for item_key in search_keys:
+                if item_key in self._signals_cash:
+                    self.make_graph.emit(self._signals_cash[item_key])
+        except:
+            print("PANIC push_data_to_graph")
+
+    def clean_search_res(self):
+        self._filtered_msg.clear()
+        self._fileExplorer.clear()
+        self._searchByExpr.clear()
+        self._fileExplorer.up_data_to_view(self._log_cash)
+
+    def push_name_to_search(self):
+        print("Cursor " + str(self._searchByExpr.cursorPosition()))
+        if self._searchByExpr.cursorPosition() == 0:
+            self._searchByExpr.insert(self._msgName.currentItem().text())
+        else:
+            self._searchByExpr.insert('|' + self._msgName.currentItem().text())
+
+    def update_key(self, search_key):
+        self._search_key = search_key
+
+    def update_list(self):
+        self._filtered_msg.clear()
         self._fileExplorer.clear()
 
-        if len(search_key) > 5:
-            search_keys = search_key.split('|')
-            for item_key in search_keys:
-                for item in self._messages_cash:
-                    if item_key.lower() in item.lower():
-                        try:
-                            print(self._messages_cash[item.strip()])
-                            for str_item in self._messages_cash[item.strip()]:
-                                self._fileExplorer.addItem(str_item)
-                        except:
-                            print("PANIC!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! " + item)
+        search_keys = self._search_key.split('|')
+        for item_key in search_keys:
+            for item in self._messages_cash:
+                if item_key.lower() in item.lower():
+                    self._filtered_msg.extend(self._messages_cash[item.strip()])
+
+        self._filtered_msg.sort()
+        try:
+            for str_item in self._filtered_msg:
+                self._fileExplorer.addItem(str_item)
+        except:
+            print("PANIC!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! " + item)
 
     def connect_drop_event(self, handler):
         self._fileExplorer.file_path_updated.connect(lambda file_path: handler(file_path))
 
     def upload_file_data(self, data_list, data_dict):
+        start = timer()
         self._fileExplorer.clear()
         self._messages_cash = data_dict
-        self._fileExplorer.up_data_to_view(data_list)
+        self._log_cash = data_list
+        end = timer()
+        print("upload_file_data" + str(end-start))
+        self._fileExplorer.up_data_to_view(self._log_cash)
 
     def get_selected_str(self):
         print(self._fileExplorer.currentItem().text())
@@ -343,6 +423,86 @@ class AnalyzerWidget(QWidget):
         self._msgName.clear()
         self._msgName.addItem(name)
 
+    def upload_file_signals(self, signals_dict):
+        print("upload_file_signals")
+        self._signals_cash = signals_dict
+
+
+class PlotCanvas(FigureCanvas):
+    """Ultimately, this is a QWidget (as well as a FigureCanvasAgg, etc.)."""
+    def __init__(self, parent=None, width=5, height=4, dpi=100):
+        fig = Figure(figsize=(width, height), dpi=dpi)
+        self.axes = fig.add_subplot(111)
+        # We want the axes cleared every time plot() is called
+        # self.axes.hold(False)
+
+        self.compute_initial_figure()
+
+        #
+        FigureCanvas.__init__(self, fig)
+        self.setParent(parent)
+
+        FigureCanvas.setSizePolicy(self,
+                QSizePolicy.Expanding,
+                QSizePolicy.Expanding)
+        FigureCanvas.updateGeometry(self)
+
+    def compute_initial_figure(self):
+        pass
+
+
+class MsgCanvas(PlotCanvas):
+    """Simple canvas with a sine plot."""
+
+    def __init__(self, *args, **kwargs):
+        PlotCanvas.__init__(self, *args, **kwargs)
+        self._data = dict()
+
+    def upload_data(self, data):
+        self._data = data
+
+    def compute_initial_figure(self):
+        pass
+
+    def make_it(self):
+        print(self._data)
+        x = list(self._data.keys())
+        y = list(self._data.values())
+        self.axes.plot(x, y)
+        self.draw()
+
+
+class MyStaticMplCanvas(PlotCanvas):
+    """Simple canvas with a sine plot."""
+    def compute_initial_figure(self):
+        t = arange(0.0, 3.0, 0.01)
+        s = sin(2*pi*t)
+        self.axes.plot(t, s)
+
+
+class GraphWidget(QWidget):
+
+    def __init__(self, parent=None):
+        super(GraphWidget, self).__init__(parent=parent)
+        self._pool = list()
+        self._layout = QVBoxLayout(self)
+
+    def show(self, data):
+        msg_graph = MsgCanvas()
+        msg_graph.upload_data(data)
+        self._layout.addWidget(msg_graph)
+        msg_graph.make_it()
+
+    def clean(self):
+        for i in reversed(range(self._layout.count())):
+            self._layout.itemAt(i).widget().deleteLater()
+
+        print("clean graph")
+
+    def test(self):
+        msg_graph = MyStaticMplCanvas()
+        self._layout.addWidget(msg_graph)
+        print("show test graph")
 
 
 class GuiWindow(QMainWindow):
@@ -362,9 +522,13 @@ class GuiWindow(QMainWindow):
         self.setGeometry(self.left, self.top, self.width, self.height)
         self._tabWidget = TabsWidget(self)
 
+        self._graph = GraphWidget(self)
+
         self._analyser = AnalyzerWidget(self)
         self._analyser.connect_drop_event(lambda file_path: self.openNewFile.emit(file_path))
         self._analyser.str_selected.connect(self.request_for_decode_msg)
+        self._analyser.make_graph.connect(self._graph.show)
+        self._analyser.clean.connect(self._graph.clean)
 
         self._ig = QWidget()
         self._layoutIg = IGLayout(self._ig)
@@ -375,13 +539,15 @@ class GuiWindow(QMainWindow):
 
         self._tabWidget.create_new_tab("IG", self._ig)
         self._tabWidget.create_new_tab("Analyzer", self._analyser)
+        self._tabWidget.create_new_tab("Graph", self._graph)
         self._tabWidget.final_tabs_setup()
-        # self.btn_2 = QPushButton("2")
-        # self.vlayout_2 = QVBoxLayout(self._layoutIg.get_data_msg_frame())
-        # self.vlayout_2.addWidget(self.btn_2)
 
         self.setCentralWidget(self._tabWidget)
         self.show()
+
+    @pyqtSlot(dict)
+    def load_signals_cash(self, signals_data):
+        self._analyser.upload_file_signals(signals_data)
 
     @pyqtSlot(str)
     def show_message_name(self, msg_name):

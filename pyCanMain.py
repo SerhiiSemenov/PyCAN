@@ -67,6 +67,7 @@ def main():
     canDb.loadCANTrace.connect(lambda data_list, data_dict: mainWindow.upload_file_data(data_list, data_dict))
     canDb.loadMsgSigVal.connect(lambda sig_dict: mainWindow.show_message_payload(sig_dict))
     canDb.loadSelectedMsgName.connect(lambda msg_name: mainWindow.show_message_name(msg_name))
+    canDb.loadSignalsCash.connect(lambda signals_data: mainWindow.load_signals_cash(signals_data))
     canDb.moveToThread(my_thread)
     mainWindow.show()
     sys.exit(app.exec_())
