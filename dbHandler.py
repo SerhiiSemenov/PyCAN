@@ -71,7 +71,7 @@ class DbHandler(QObject):
     def load_db(self, path_to_db):
         """Load CAN DB file"""
         print("Path to dbc: {}".format(path_to_db))
-        self._can_db_inst = cantools.database.load_file('Y2018_CGEA1.3_CMDB_B_v18.07A_112718_HS4.dbc')
+        self._can_db_inst = cantools.database.load_file('test_db.dbc')
 
     @pyqtSlot(set)
     def get_msg_name_list(self):

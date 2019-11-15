@@ -42,7 +42,7 @@ def main():
 
     canDb = dbHandler.DbHandler()
     # canDb.load_db('test_db.dbc')
-    canDb.load_db('Y2018_CGEA1.3_CMDB_B_v18.07A_112718_HS4.dbc')
+    canDb.load_db('test_db.dbc')
 
     my_thread = QThread()
     my_thread.start()
