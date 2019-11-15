@@ -1,10 +1,7 @@
 import ics
 import sys
-import cantools
-import canToolsWrapper
 import appGUI
 import dbHandler
-import PyQt5
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QThread, QThreadPool
 
@@ -44,13 +41,8 @@ def main():
     # messages_list = canToolsWrapper.get_all_messages(db)
 
     canDb = dbHandler.DbHandler()
-    # root.bind("<<IG_CAN_MSG_UPD>>", lambda event: root.msg_data_update_ui(event), add='+')  # bing update msg result event
-    canDb.load_db('test_db.dbc')
-
-    # root.loadMessageList(can_db.get_msg_name_list())
-    # root.reg_msg_selected_callback(can_db.get_message_by_name)
-    # root.reg_msg_upd_callback(can_db.create_signal_updater)
-    # root.mainloop()
+    # canDb.load_db('test_db.dbc')
+    canDb.load_db('Y2018_CGEA1.3_CMDB_B_v18.07A_112718_HS4.dbc')
 
     my_thread = QThread()
     my_thread.start()
@@ -64,7 +56,7 @@ def main():
 
     canDb.msgDataUpdSig.connect(lambda msg_id, data_str: mainWindow.update_msg_data(msg_id, data_str))
     canDb.loadSigDataToGui.connect(lambda sig_collection: mainWindow.pop_signals_to_gui(sig_collection))
-    canDb.loadCANTrace.connect(lambda data_list, data_dict: mainWindow.upload_file_data(data_list, data_dict))
+    canDb.loadCANTrace.connect(lambda data_dict: mainWindow.upload_file_data(data_dict))
     canDb.loadMsgSigVal.connect(lambda sig_dict: mainWindow.show_message_payload(sig_dict))
     canDb.loadSelectedMsgName.connect(lambda msg_name: mainWindow.show_message_name(msg_name))
     canDb.loadSignalsCash.connect(lambda signals_data: mainWindow.load_signals_cash(signals_data))

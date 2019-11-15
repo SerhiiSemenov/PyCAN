@@ -2,12 +2,11 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from timeit import default_timer as timer
 import matplotlib
+import sys
 matplotlib.use("Qt5Agg")
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from numpy import arange, sin, pi
-import sys
-import os
 
 
 class IGLayout(QWidget):
@@ -59,10 +58,9 @@ class IGLayout(QWidget):
         self.leftFrame.setMidLineWidth(2)
         self.leftFrame.setFrameShape(QFrame.StyledPanel)
         self.leftFrame.setFrameShadow(QFrame.Raised)
-        #self.leftFrame.setMaximumWidth(300)
         self.mainLayout.addWidget(self.leftFrame)
 
-    def getRightFrame(self):
+    def get_right_frame(self):
         return self.rightFrame
 
     def get_left_frame(self):
@@ -188,12 +186,19 @@ class GenerateMsgWidget(QWidget):
         self._msg_payload = QLineEdit(self._frame)
         self._msg_payload.setFixedWidth(200)
 
+        self._buttonUpdate = QPushButton("Update")
+
         self._layout.addWidget(self._info)
         self._layout.addWidget(self._msg_id)
         self._layout.addWidget(self._msg_payload)
+        self._layout.addWidget(self._buttonUpdate)
 
         self._msg_id.setText('000')
         self._msg_payload.setText('00:00:00:00:00:00:00:00')
+        self._buttonUpdate.clicked.connect(self.update_conf_values)
+
+    def update_conf_values(self):
+        print("update_conf_values")
 
     def update_signals_field(self, msg_id, data):
         print("Update signals")
@@ -239,6 +244,8 @@ class ThumbListWidget(QListWidget):
         self.setIconSize(QSize(124, 124))
         self.setDragDropMode(QAbstractItemView.DragDrop)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self._filePath = str()
+        self._text = list()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -255,16 +262,26 @@ class ThumbListWidget(QListWidget):
 
     def dropEvent(self, event):
         print('dropEvent', event)
+        self._text.clear()
         data = event.mimeData()
         urls = data.urls()
         if urls and urls[0].scheme() == 'file':
-            filepath = str(urls[0].path())[1:]
-            print(filepath[-4:])
+            self._filePath = str(urls[0].path())[1:]
+            print(self._filePath[-4:])
             # any file type here
-            if filepath[-4:] == '.asc':
-                print(filepath)
-                self.file_path_updated.emit(filepath)
-                # self.clear()
+            if self._filePath[-4:] == '.asc':
+                print(self._filePath)
+                try:
+                    with open(self._filePath, "r") as file:
+                        for line in file:
+                            self._text.append(line.split('Length')[0])
+
+                        file.close()
+                    self.up_cashed_data()
+                    self.file_path_updated.emit(self._filePath)
+                except:
+                    print("dropEvent: WTF!" + str(sys.exc_info()[0]) + "occured.")
+
             else:
                 dialog = QMessageBox()
                 dialog.setWindowTitle("Error: Invalid File")
@@ -279,17 +296,22 @@ class ThumbListWidget(QListWidget):
         end = timer()
         print("up_data_to_view" + str(end-start))
 
+    def up_cashed_data(self):
+        try:
+            self.clear()
+            self.addItems(self._text)
+        except MemoryError:
+            print("Ycu can not load this file, it's so huge")
+
 
 class AnalyzerWidget(QWidget):
-    str_selected = pyqtSignal()
+    str_selected = pyqtSignal(str)
     make_graph = pyqtSignal(dict)
     clean = pyqtSignal()
 
     def __init__(self, parent=None):
         super(AnalyzerWidget, self).__init__(parent=parent)
 
-        self._fileExplorerWidget = QListWidget()
-        self._fileExplorerWidget.setMinimumWidth(900)
         self._fileExplorer = ThumbListWidget(self)
         self._messages_cash = dict()
         self._log_cash = list()
@@ -305,7 +327,8 @@ class AnalyzerWidget(QWidget):
         self._searchBox = QHBoxLayout(self._searchBoxFrame)
         self._searchSigBox = QHBoxLayout(self._searchSigFrame)
         self._layout = QHBoxLayout(self)
-        self._mainArea = QListWidget()
+        self._filteredMsgArea = QListWidget()
+
         self._msgName = QListWidget()
         self._searchByExpr = QLineEdit()
         self._searchBySignal = QLineEdit()
@@ -314,13 +337,14 @@ class AnalyzerWidget(QWidget):
         self._cleanButton = QPushButton("clean")
         self._mkGraphButton = QPushButton("make graph")
         self._cleanGraphButton = QPushButton("clean")
-        self._mainArea.setMinimumWidth(900)
-        # self._msgDetailArea.setMaximumWidth(400)
-        # self._msgName.setMaximumWidth(400)
+        self._fileExplorer.setMinimumWidth(600)
+        self._filteredMsgArea.setMinimumWidth(300)
+        self._filteredMsgArea.setMaximumWidth(400)
         self._msgFrame.setMaximumWidth(400)
         self._msgName.setMaximumHeight(40)
 
         self._layout.addWidget(self._fileExplorer)
+        self._layout.addWidget(self._filteredMsgArea)
         self._layout.addWidget(self._msgFrame)
         self._searchBox.addWidget(self._searchButton)
         self._searchBox.addWidget(self._cleanButton)
@@ -333,7 +357,10 @@ class AnalyzerWidget(QWidget):
         self._layoutDetailArea.addWidget(self._msgName)
         self._layoutDetailArea.addWidget(self._msgDetailArea)
 
-        self._fileExplorer.itemDoubleClicked.connect(self.str_selected)
+        self._fileExplorer.itemDoubleClicked.connect(
+                                            lambda: self.str_selected.emit(str(self._fileExplorer.currentItem().text())))
+        self._filteredMsgArea.itemDoubleClicked.connect(
+                                            lambda: self.str_selected.emit(self._filteredMsgArea.currentItem().text()))
         self._searchByExpr.textChanged.connect(self.update_key)
         self._searchBySignal.textChanged.connect(self.update_sig_key)
         self._searchButton.clicked.connect(self.update_list)
@@ -357,19 +384,16 @@ class AnalyzerWidget(QWidget):
         self._search_key_sig = search_sig
 
     def push_data_to_graph(self):
-        try:
-            search_keys = self._search_key_sig.split('|')
-            for item_key in search_keys:
-                if item_key in self._signals_cash:
-                    self.make_graph.emit(self._signals_cash[item_key])
-        except:
-            print("PANIC push_data_to_graph")
+        search_keys = self._search_key_sig.split('|')
+        for item_key in search_keys:
+            if item_key in self._signals_cash:
+                self.make_graph.emit(self._signals_cash[item_key])
 
     def clean_search_res(self):
         self._filtered_msg.clear()
         self._fileExplorer.clear()
         self._searchByExpr.clear()
-        self._fileExplorer.up_data_to_view(self._log_cash)
+        self._fileExplorer.up_cashed_data()
 
     def push_name_to_search(self):
         print("Cursor " + str(self._searchByExpr.cursorPosition()))
@@ -383,7 +407,7 @@ class AnalyzerWidget(QWidget):
 
     def update_list(self):
         self._filtered_msg.clear()
-        self._fileExplorer.clear()
+        self._filteredMsgArea.clear()
 
         search_keys = self._search_key.split('|')
         for item_key in search_keys:
@@ -394,25 +418,19 @@ class AnalyzerWidget(QWidget):
         self._filtered_msg.sort()
         try:
             for str_item in self._filtered_msg:
-                self._fileExplorer.addItem(str_item)
+                self._filteredMsgArea.addItem(str_item)
         except:
             print("PANIC!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! " + item)
 
     def connect_drop_event(self, handler):
         self._fileExplorer.file_path_updated.connect(lambda file_path: handler(file_path))
 
-    def upload_file_data(self, data_list, data_dict):
+    def upload_file_data(self, data_dict):
         start = timer()
-        self._fileExplorer.clear()
+        # self._fileExplorer.clear()
         self._messages_cash = data_dict
-        self._log_cash = data_list
         end = timer()
-        print("upload_file_data" + str(end-start))
-        self._fileExplorer.up_data_to_view(self._log_cash)
-
-    def get_selected_str(self):
-        print(self._fileExplorer.currentItem().text())
-        return self._fileExplorer.currentItem().text()
+        print("upload_file_data " + str(end-start))
 
     def upload_msg_data(self, signal_data):
         self._msgDetailArea.clear()
@@ -526,13 +544,14 @@ class GuiWindow(QMainWindow):
 
         self._analyser = AnalyzerWidget(self)
         self._analyser.connect_drop_event(lambda file_path: self.openNewFile.emit(file_path))
-        self._analyser.str_selected.connect(self.request_for_decode_msg)
+        self._analyser.str_selected.connect(lambda in_str: self.request_for_decode_msg(in_str))
+
         self._analyser.make_graph.connect(self._graph.show)
         self._analyser.clean.connect(self._graph.clean)
 
         self._ig = QWidget()
         self._layoutIg = IGLayout(self._ig)
-        self._searchWidget = SearchWidget(self._layoutIg.getRightFrame())
+        self._searchWidget = SearchWidget(self._layoutIg.get_right_frame())
         self._signalConfigWidget = SignalConfigWidget(self._layoutIg.get_sig_frame())
         self._searchWidget.msg_selected.connect(self.show_message_struct)
         self._msgResult = GenerateMsgWidget(self._layoutIg.get_data_msg_frame())
@@ -560,16 +579,15 @@ class GuiWindow(QMainWindow):
         self._analyser.upload_msg_data(sig_dict)
 
     @pyqtSlot()
-    def request_for_decode_msg(self):
-        self.requestForMsgDecode.emit(self._analyser.get_selected_str())
+    def request_for_decode_msg(self, selected_str):
+        self.requestForMsgDecode.emit(selected_str)
 
-    @pyqtSlot(list, dict)
-    def upload_file_data(self, data_list, data_dict):
-        self._analyser.upload_file_data(data_list, data_dict)
+    @pyqtSlot(dict)
+    def upload_file_data(self, data_dict):
+        self._analyser.upload_file_data(data_dict)
 
     @pyqtSlot()
     def show_message_struct(self):
-        print("show_message_struct MSG Name {}".format(self._searchWidget.get_message_name()))
         self.requestSignalDataSig.emit(self._searchWidget.get_message_name())
 
     @pyqtSlot(set)

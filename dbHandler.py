@@ -1,5 +1,6 @@
 import cantools
 import canToolsWrapper
+import sys
 from PyQt5.QtCore import *
 from collections import OrderedDict
 from timeit import default_timer as timer
@@ -47,7 +48,7 @@ class DbHandler(QObject):
 
     msgDataUpdSig = pyqtSignal(str, str)
     loadSigDataToGui = pyqtSignal(set)
-    loadCANTrace = pyqtSignal(list, dict)
+    loadCANTrace = pyqtSignal(dict)
     loadSignalsCash = pyqtSignal(dict)
     loadSignalValsToGui = pyqtSignal(dict)
     loadMsgSigVal = pyqtSignal(dict)
@@ -64,13 +65,13 @@ class DbHandler(QObject):
         self._fileSignalsData = dict()
         self._signal_name_list = dict()
         self._fileDataCash = list()
-        self._id_list_cash = list()
-        self._name_list_cash = list()
+        self._id_list_cash = set()
+        self._name_list_cash = set()
 
     def load_db(self, path_to_db):
         """Load CAN DB file"""
         print("Path to dbc: {}".format(path_to_db))
-        self._can_db_inst = cantools.database.load_file('test_db.dbc')
+        self._can_db_inst = cantools.database.load_file('Y2018_CGEA1.3_CMDB_B_v18.07A_112718_HS4.dbc')
 
     @pyqtSlot(set)
     def get_msg_name_list(self):
@@ -83,8 +84,8 @@ class DbHandler(QObject):
                 self._signal_name_list[signal_name] = name
             id = message.frame_id
             msg_name_id.add(hex(id) + '   ' + name)
-            self._id_list_cash.append(id)
-            self._name_list_cash.append(name)
+            self._id_list_cash.add(id)
+            self._name_list_cash.add(name)
         return msg_name_id
 
     def get_message_by_name(self, message_name):
@@ -167,8 +168,6 @@ class DbHandler(QObject):
 
     @pyqtSlot(str)
     def open_can_trace(self, file_path):
-        skipped_str = 0
-        str_number = 0
         log_data = dict()
 
         self._fileParsedData.clear()
@@ -177,7 +176,7 @@ class DbHandler(QObject):
         start = timer()
         with open(file_path, "r") as file:
             file_data = file.readlines()
-            file_data_light = list()
+            file.close()
             for file_str in file_data:
                 try:
                     split_data = file_str.split()
@@ -186,10 +185,9 @@ class DbHandler(QObject):
                     payload_index = file_str.find('d 8')+4
                     payload = file_str[payload_index:payload_index+23].strip()
                     msg_payload_data = bytearray.fromhex(payload)
-                    file_data_light.append(file_str[:payload_index+23])
 
                 except:
-                    #print("No msg here:" + file_str[:20].strip())
+                    # print("No msg here:" + file_str[:20].strip())
                     continue
 
                 try:
@@ -211,10 +209,10 @@ class DbHandler(QObject):
 
                     """message search table"""
                     if message_id in log_data:
-                        log_data[message_id].append(file_str[:payload_index+23])
+                        log_data[message_id].add(file_str[:payload_index+23])
                     else:
-                        log_data[message_id] = list()
-                        log_data[message_id].append(file_str[:payload_index+23])
+                        log_data[message_id] = set()
+                        log_data[message_id].add(file_str[:payload_index+23])
 
                     """signal search table"""
                     if is_message_in_db:
@@ -227,31 +225,18 @@ class DbHandler(QObject):
                                 self._fileSignalsData[signal_name] = dict()
                                 self._fileSignalsData[signal_name][time] = msg[signal_name]
 
-                except:
-                    skipped_str = skipped_str + 1
-                    print("msg cat not be decoded:" + file_str[:12].strip() + ' id ' + message_id.strip() + ' msg ' + str(
-                        msg_payload_data))
+                except AttributeError:
+                    print("open_can_trace: " + str(sys.exc_info()[0]) + file_str[:12].strip() + ' id ' +
+                          str(message_id) + ' msg ' + str(msg_payload_data))
+                except MemoryError:
+                    print("Ycu can not load this file")
+                    break
 
             end = timer()
-            print(end-start)
-            self.loadCANTrace.emit(file_data_light, log_data)
-            self.loadSignalsCash.emit(self._fileSignalsData)
+            print("Parsing completed {}".format(end-start))
 
-            # if 'EmgcyCallFalt_B_Dsply' in self._fileSignalsData:
-            #     sig_dat = self._fileSignalsData['EmgcyCallFalt_B_Dsply']
-            #     for dat in sig_dat:
-            #         print(str(dat) + ';' + str(sig_dat[dat]) + ";")
-            #
-            # print("SIGNAL DATA")
-            # for signal_name_cashed in self._fileSignalsData:
-            #     print("Name:" + str(signal_name_cashed) + " val:" + str(self._fileSignalsData[signal_name_cashed]))
-            # Used for ticket
-            # if 'EmgcyCallFalt_B_Dsply' in self._fileSignalsData:
-            #     if 'EmgcyCallHmi_D_Stat' in self._fileSignalsData:
-            #         sig_dat = self._fileSignalsData['EmgcyCallHmi_D_Stat']
-            #         for dat in sig_dat:
-            #             print(str(dat) + ';' + str(sig_dat[dat]) + ";" +
-            #                   str(self._fileSignalsData['EmgcyCallFalt_B_Dsply'][dat]) + ';')
+            self.loadCANTrace.emit(log_data)
+            self.loadSignalsCash.emit(self._fileSignalsData)
 
     @pyqtSlot(str)
     def show_signal_values(self, signal_name):
@@ -260,7 +245,7 @@ class DbHandler(QObject):
     @pyqtSlot(str)
     def parce_can_str(self, can_str):
         try:
-            time = float(can_str[:12].strip())
+            time = float(can_str.split()[0])
             self.loadMsgSigVal.emit(self._fileParsedData[time])
             self.loadSelectedMsgName.emit(self._fileParsedMsgName[time])
         except:
