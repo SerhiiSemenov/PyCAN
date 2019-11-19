@@ -391,9 +391,8 @@ class AnalyzerWidget(QWidget):
 
     def clean_search_res(self):
         self._filtered_msg.clear()
-        self._fileExplorer.clear()
+        self._filteredMsgArea.clear()
         self._searchByExpr.clear()
-        self._fileExplorer.up_cashed_data()
 
     def push_name_to_search(self):
         print("Cursor " + str(self._searchByExpr.cursorPosition()))
@@ -456,7 +455,6 @@ class PlotCanvas(FigureCanvas):
 
         self.compute_initial_figure()
 
-        #
         FigureCanvas.__init__(self, fig)
         self.setParent(parent)
 
